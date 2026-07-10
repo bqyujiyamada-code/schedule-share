@@ -10,12 +10,12 @@ import {
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { sampleSchedule } from "../src/lib/mock-data.ts";
 
-const region = process.env.AWS_REGION;
+const region = process.env.DYNAMODB_REGION;
 const tableName = process.env.DYNAMODB_TABLE_NAME;
 
 if (!region || !tableName) {
   throw new Error(
-    "AWS_REGION と DYNAMODB_TABLE_NAME が未設定です。--env-file=.env.local を付けて実行してください。",
+    "DYNAMODB_REGION と DYNAMODB_TABLE_NAME が未設定です。--env-file=.env.local を付けて実行してください。",
   );
 }
 

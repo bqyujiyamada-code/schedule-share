@@ -8,7 +8,10 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import type { ScheduleFormValues, ScheduleItem } from "@/lib/mock-data";
 
-const region = process.env.AWS_REGION;
+// DynamoDB テーブルの接続先リージョン。
+// "AWS_" で始まる環境変数名は Lambda ランタイムの予約名と衝突するため
+// （AWS Amplify Hosting 等では設定できない）、あえて非予約の名前にしている。
+const region = process.env.DYNAMODB_REGION;
 
 const client = new DynamoDBClient({ region });
 export const docClient = DynamoDBDocumentClient.from(client);
