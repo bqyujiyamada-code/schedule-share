@@ -1,5 +1,14 @@
 # schedule-share TODO
 
+## 現状サマリー（2026-07-13 時点）
+
+**今の作業状態**: 予定の追加・編集・削除・カテゴリ表示・月絞り込み・Google Places Autocompleteによる開催場所入力・DynamoDBへの永続化・フォームバリデーション強化まで実装完了。GitHub（`bqyujiyamada-code/schedule-share`, public）→Vercel自動デプロイの本番環境で一通り実機動作確認済み（AWS Amplify Hostingは検討後に不採用とし、後片付けも完了）。アーキテクチャ・環境変数のまとめはArtifactとして作成済み、Git/GitHub作業の汎用手順は`~/git-github-workflow.md`に切り出し済み。
+
+**次にやりたいこと**（詳細は下記「次に着手すべきこと」参照）:
+- カテゴリ管理のUI化
+- `location.lat`/`lng`を使ったマップ「表示」機能（現状は登録時の座標取得と外部マップ起動のみ）
+- モバイル実機・ダークモードの見た目確認（フォームバリデーション強化分のエラー表示含め、実ブラウザでの動作確認は未実施）
+
 ## これまでの成果
 
 ### 基本構成
@@ -31,7 +40,8 @@
 進め方: ①AWS認証情報・DynamoDBテーブル準備とseed投入 → ②書き込みAPI実装 → ③`page.tsx`/`ScheduleApp`をDynamoDB接続に切り替え、の順で実施。
 
 - **キー設計**: `ScheduleItem.id`を`number`→`string`(UUID、`crypto.randomUUID()`)に変更。DynamoDBのパーティションキーは`id`(String, HASH)
-- **AWS設定**: `.env.local`に`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION=ap-northeast-1`/`DYNAMODB_TABLE_NAME=schedule-share-records`。IAMポリシーは`schedule-share*`テーブルのみに絞り込み
+- **AWS設定**: `.env.local`に`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`DYNAMODB_REGION=ap-northeast-1`/`DYNAMODB_TABLE_NAME=schedule-share-records`。IAMポリシーは`schedule-share*`テーブルのみに絞り込み
+  - 2026-07-10: リージョン指定の環境変数名を`AWS_REGION`→`DYNAMODB_REGION`に変更。AWS Lambda（Amplify HostingのSSR実行環境）では`AWS_`始まりの環境変数名が予約済みでユーザー設定できないため（Amplify Console側で「Environment variables cannot start with the reserved prefix "AWS"」というエラーで発覚）
 - **`scripts/seed-dynamodb.ts`**: テーブルが無ければ`CreateTableCommand`で作成（オンデマンド課金`PAY_PER_REQUEST`、容量プランニング不要）し、`sampleSchedule`を`PutCommand`で全件投入する冪等なスクリプト。`../src/lib/mock-data.ts`を相対importしているため、シード内容は常に実際のサンプルデータと一致する（手動転記によるズレが起きない）。実行: `node --env-file=.env.local scripts/seed-dynamodb.ts`（Node 24のネイティブTS実行を利用。`@/`パスエイリアスは使えないため相対importにしている点に注意）
 - **`src/lib/db.ts`**: `@aws-sdk/client-dynamodb`（低レベルクライアント）+ `@aws-sdk/lib-dynamodb`（`DynamoDBDocumentClient`でJSオブジェクトの相互変換を吸収）を`dependencies`に追加
   - `getSchedules(): Promise<ScheduleItem[]>`: `ScanCommand`で全件取得。`LastEvaluatedKey`が無くなるまでページングするループを実装（1回のScanは最大1MB/1ページ分しか返らないため）
@@ -59,6 +69,14 @@
   - 「開催場所」は`LocationAutocomplete`（Google Places Autocomplete）。候補選択で開催場所名・住所・緯度経度（非表示のstate）が自動入力される
   - 「住所」欄は選択後も手動編集可能。編集すると自動取得した座標は破棄され（`setCoords(null)`）、地図起動時は住所文字列検索にフォールバックする
   - フォーム自体は見た目（背景・角丸・余白）を持たず、呼び出し側（`AddScheduleToggle`のボトムシート／`ScheduleCard`の詳細シート）に委譲する構成（二重の枠にならないように）
+
+### フォームバリデーション強化（2026-07-13 完了）
+- `ScheduleForm`に`fieldErrors`state（`title`/`locationName`/`address`/`endDate`/`endTime`をキーとする）と`validate()`関数を追加し、`handleSubmit`内でネイティブHTML検証とは別にJS側でもチェックしてから`onSubmit`を呼ぶ方式にした
+- 「開催場所」対応: `LocationAutocomplete`は`google.maps.places.PlaceAutocompleteElement`（カスタム要素）を使っており、ネイティブ`required`属性が効かず候補未選択のまま送信できてしまう問題があった。`locationName`state（候補選択時のみ`handlePlaceSelected`で更新される）が空文字なら送信をブロックし、「候補一覧から開催場所を選択してください」を表示する形で解消
+- 日付・時間の相関チェック: `endDate`には既に`min={startDate}`を付けていたが、ブラウザ依存を避けるためJS側でも`endDate < startDate`を明示チェック。同日（`startDate === endDate`）の場合は`endTime <= startTime`もチェック（複数日にまたがる予定では終了時間が開始時間より早くても問題ないため、同日の場合のみ適用）
+- 各フィールドは入力変更時に対応する`fieldErrors`のキーを`clearFieldError()`でクリアし、再送信を待たずにエラー表示が消えるようにした
+- エラー表示は既存の`submitError`と同じ`text-error` + `role="alert"`のスタイルに統一。`LocationAutocomplete`自体は変更せず、`ScheduleForm`側でラップして表示
+- ヘッドレスブラウザがサンドボックス環境に無いため、`npx tsc --noEmit`・`npx eslint`・`npm run build`の確認のみ実施。実ブラウザでの動作確認は未実施
 
 ### 予定一覧表示
 - `src/components/ScheduleCard.tsx`: カード（タップ可能なボタン）にはカテゴリバッジ・タイトル・日付（単日は`7/10(木)`、複数日は`7/10(木)–7/12(土)`のレンジ表示）・時間帯・開催場所/住所のみを表示
@@ -103,12 +121,22 @@
 - 同環境にはCJK（日本語）フォントも無く、スクリーンショット上で日本語がtofu box表示になる（DOM上のテキスト自体は正しい）
 - `AGENTS.md` の指示どおり、コーディング前に `node_modules/next/dist/docs/` の該当ガイドを確認する運用を継続中
 
+### 新しいPCでのセットアップ手順（2026-07-10）
+1. Node.js 24以降 + Git をインストール（`scripts/seed-dynamodb.ts`がNodeのネイティブTS実行に依存するためNode 22.6+必須、24系推奨）
+2. `git clone https://github.com/bqyujiyamada-code/schedule-share.git`（publicリポジトリのためclone自体は認証不要）
+3. `npm install`
+4. **`.env.local`を手動で再作成**（`.gitignore`対象のためcloneに含まれない）。必要な5変数は「外部連携」「データ永続化」の各セクション参照
+   - `AWS_SECRET_ACCESS_KEY`は発行時にしか表示されないため、保存していなければ IAM → `schedule-share-app` ユーザーで新規発行が必要（旧キーは無効化推奨）
+   - `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`はGoogle Cloud Consoleでいつでも再確認可能
+5. `npm run dev`で`http://localhost:3000`にDynamoDBの実データが表示されれば完了
+6. GitHubにpushする場合は`git config user.name`/`user.email`の再設定と、push用認証（`gh auth login`等）が別途必要
+7. Vercelへのデプロイは GitHub push トリガーの自動デプロイのため、新PC側での設定は不要。DynamoDBテーブルもAWS上に存在済みのため再作成不要
+
 ## 次に着手すべきこと
 
 ### 機能面
 - カテゴリ管理のUI化（優先度: 中、未着手）: 現状 `categories.ts` を直接編集する運用。ユーザーがアプリ上でカテゴリの追加・改名・並べ替えをできるようにする場合、DB化とあわせて設計が必要（`colorRole` の割り当てをどう自動化するかも検討）
-- フォームのバリデーション（必須項目以外のエラー表示など。「開催場所」はPlaces Autocompleteのカスタム要素のためネイティブ`required`が効いておらず未選択のまま送信できてしまう点も含む）
-- Google Places Autocompleteの実機動作確認（優先度: 高、未着手）— 上記の通りサンドボックス環境では未検証
+- Google Places Autocompleteの実機動作確認: 2026-07-10、Vercel本番環境でユーザーが実機確認し、正常動作を確認済み
 - `location.lat`/`lng` を使ったマップ「表示」（一覧上のピン打ちなど）は依然未着手。今回実装したのは登録時の座標取得と詳細画面からの外部マップ起動のみ
 
 ### デザイン面

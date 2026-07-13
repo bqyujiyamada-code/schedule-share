@@ -54,11 +54,51 @@ export function ScheduleForm({
   const [notes, setNotes] = useState(initialValues?.notes ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<
+    Partial<Record<"title" | "locationName" | "address" | "endDate" | "endTime", string>>
+  >({});
+
+  function clearFieldError(field: keyof typeof fieldErrors) {
+    setFieldErrors((prev) => {
+      if (!(field in prev)) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }
+
+  function validate(): typeof fieldErrors {
+    const errors: typeof fieldErrors = {};
+    if (title.trim() === "") {
+      errors.title = "タイトルを入力してください";
+    }
+    if (locationName.trim() === "") {
+      errors.locationName = "候補一覧から開催場所を選択してください";
+    }
+    if (address.trim() === "") {
+      errors.address = "住所を入力してください";
+    }
+    if (startDate && endDate && endDate < startDate) {
+      errors.endDate = "終了日は開始日以降にしてください";
+    }
+    if (
+      startDate &&
+      endDate &&
+      startDate === endDate &&
+      startTime &&
+      endTime &&
+      endTime <= startTime
+    ) {
+      errors.endTime = "終了時間は開始時間より後にしてください";
+    }
+    return errors;
+  }
 
   function handlePlaceSelected(place: SelectedPlace) {
     setLocationName(place.name);
     setAddress(place.address);
     setCoords({ lat: place.lat, lng: place.lng });
+    clearFieldError("locationName");
   }
 
   function handleStartDateChange(value: string) {
@@ -75,6 +115,10 @@ export function ScheduleForm({
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const errors = validate();
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
     setSubmitError(null);
     setIsSubmitting(true);
 
@@ -113,10 +157,19 @@ export function ScheduleForm({
           type="text"
           required
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            clearFieldError("title");
+          }}
           placeholder="例: 練習試合 (vs FC札幌)"
+          aria-invalid={fieldErrors.title != null}
           className={inputClassName}
         />
+        {fieldErrors.title && (
+          <p className="text-xs text-error" role="alert">
+            {fieldErrors.title}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-col gap-1">
@@ -165,9 +218,18 @@ export function ScheduleForm({
             required
             min={startDate || undefined}
             value={endDate}
-            onChange={(e) => handleEndDateChange(e.target.value)}
+            onChange={(e) => {
+              handleEndDateChange(e.target.value);
+              clearFieldError("endDate");
+            }}
+            aria-invalid={fieldErrors.endDate != null}
             className={inputClassName}
           />
+          {fieldErrors.endDate && (
+            <p className="text-xs text-error" role="alert">
+              {fieldErrors.endDate}
+            </p>
+          )}
         </div>
       </div>
 
@@ -197,19 +259,35 @@ export function ScheduleForm({
             type="time"
             required
             value={endTime}
-            onChange={(e) => setEndTime(e.target.value)}
+            onChange={(e) => {
+              setEndTime(e.target.value);
+              clearFieldError("endTime");
+            }}
+            aria-invalid={fieldErrors.endTime != null}
             className={inputClassName}
           />
+          {fieldErrors.endTime && (
+            <p className="text-xs text-error" role="alert">
+              {fieldErrors.endTime}
+            </p>
+          )}
         </div>
       </div>
 
-      <LocationAutocomplete
-        id="locationName"
-        label="開催場所"
-        placeholder="例: 円山総合運動場"
-        initialValue={initialValues?.location.name}
-        onSelect={handlePlaceSelected}
-      />
+      <div className="flex flex-col gap-1">
+        <LocationAutocomplete
+          id="locationName"
+          label="開催場所"
+          placeholder="例: 円山総合運動場"
+          initialValue={initialValues?.location.name}
+          onSelect={handlePlaceSelected}
+        />
+        {fieldErrors.locationName && (
+          <p className="text-xs text-error" role="alert">
+            {fieldErrors.locationName}
+          </p>
+        )}
+      </div>
 
       <div className="flex flex-col gap-1">
         <label htmlFor="address" className={labelClassName}>
@@ -224,10 +302,17 @@ export function ScheduleForm({
           onChange={(e) => {
             setAddress(e.target.value);
             setCoords(null);
+            clearFieldError("address");
           }}
           placeholder="例: 北海道札幌市中央区宮ヶ丘3丁目"
+          aria-invalid={fieldErrors.address != null}
           className={inputClassName}
         />
+        {fieldErrors.address && (
+          <p className="text-xs text-error" role="alert">
+            {fieldErrors.address}
+          </p>
+        )}
         <p className="text-xs text-on-surface-variant">
           上の開催場所欄で候補を選択すると自動入力されます（座標も裏で登録）。ここを手で書き換えた場合は住所文字列での検索になります。
         </p>
