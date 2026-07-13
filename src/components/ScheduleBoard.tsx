@@ -13,6 +13,11 @@ function currentMonthKey() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function todayDateKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
 function shiftMonth(key: string, delta: number) {
   const [year, month] = key.split("-").map(Number);
   const d = new Date(year, month - 1 + delta, 1);
@@ -66,11 +71,20 @@ export function ScheduleBoard({
 
   // デフォルトは当月表示。前月/次月ボタンと年月ピッカーで月を移動する。
   const [month, setMonth] = useState<string>(() => currentMonthKey());
+  // デフォルトは終了済みの予定を隠す（今月半ばに今月を見るとき、月初の終了済み予定を
+  // スクロールで避けなければならない煩わしさを解消するため）。オンで過去分も含めて表示
+  const [showPast, setShowPast] = useState(false);
 
-  const filtered = useMemo(
+  const monthItems = useMemo(
     () => sorted.filter((item) => monthKey(item.startDate) === month),
     [sorted, month],
   );
+
+  const filtered = useMemo(() => {
+    if (showPast) return monthItems;
+    const today = todayDateKey();
+    return monthItems.filter((item) => item.endDate >= today);
+  }, [monthItems, showPast]);
 
   return (
     <div>
@@ -103,11 +117,29 @@ export function ScheduleBoard({
             <ChevronIcon direction="right" />
           </button>
         </div>
+
+        <label className="mt-2 flex min-h-10 items-center justify-between gap-3 px-1">
+          <span className="text-sm text-on-surface-variant">
+            終了済みの予定も表示する
+          </span>
+          <span className="relative inline-flex h-8 w-14 shrink-0 items-center">
+            <input
+              type="checkbox"
+              checked={showPast}
+              onChange={(e) => setShowPast(e.target.checked)}
+              className="peer sr-only"
+            />
+            <span className="absolute inset-0 rounded-full border-2 border-outline bg-surface-container-highest transition-colors duration-200 ease-standard peer-checked:border-primary peer-checked:bg-primary" />
+            <span className="relative z-10 ml-1 h-6 w-6 rounded-full bg-outline shadow-sm transition-transform duration-200 ease-standard peer-checked:translate-x-6 peer-checked:bg-on-primary" />
+          </span>
+        </label>
       </div>
 
       {filtered.length === 0 ? (
         <p className="mt-8 text-sm text-on-surface-variant">
-          この月の予定はありません。
+          {monthItems.length > 0
+            ? "この月の予定はすべて終了済みです。上のスイッチをオンにすると表示されます。"
+            : "この月の予定はありません。"}
         </p>
       ) : (
         <ul className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
